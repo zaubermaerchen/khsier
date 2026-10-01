@@ -4,56 +4,6 @@
 byte-for-byte and writes lifecycle records as JSONL to stderr. Stderr is the
 event stream; passthrough data never shares stdout with events.
 
-## Install and build
-
-```sh
-go install github.com/zaubermaerchen/khsier/cmd/khsier@latest
-```
-
-From a checkout:
-
-```sh
-go install ./cmd/khsier
-go build -o khsier ./cmd/khsier
-```
-
-## Download releases
-
-Tagged binaries are available from [GitHub Releases](https://github.com/zaubermaerchen/khsier/releases).
-Each release provides seven archives: `linux_amd64`, `linux_arm64`, `linux_armv6`,
-`darwin_amd64`, `darwin_arm64`, `windows_amd64`, and `windows_arm64`.
-Each archive contains khsier, LICENSE, README, and the reference documentation.
-
-Verify the downloaded archive against the accompanying `SHA256SUMS` before extracting it.
-Replace `vX.Y.Z` with your release tag:
-
-```sh
-version=vX.Y.Z
-archive="khsier_${version}_linux_amd64.tar.gz"
-grep -F -- "  $archive" SHA256SUMS > "$archive.sha256" || exit 1
-sha256sum -c "$archive.sha256"
-```
-
-On macOS, use `shasum -a 256 -c "$archive.sha256"` with the macOS archive name.
-On Windows PowerShell:
-
-```powershell
-$version = "vX.Y.Z"
-$archive = "khsier_${version}_windows_amd64.zip"
-$expected = (Get-Content SHA256SUMS | Where-Object { $_ -like "*  $archive" }).Split()[0]
-$actual = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
-if ($actual -ne $expected) { throw "checksum mismatch: $archive" }
-```
-
-## Example
-
-```sh
-producer | khsier --idle 250ms 2>events.jsonl | consumer
-```
-
-The consumer receives the original bytes, while `events.jsonl` records stream boundaries
-and idle/resume transitions. See the [reference](docs/khsier.md) for precise semantics.
-
 ## Usage
 
 ```text
@@ -112,24 +62,3 @@ final status is 1. No diagnostic is appended to the event stream.
 | stdout failure other than broken pipe | 1 |
 | event write failure | 1 |
 | invalid command-line arguments | 1 |
-
-## Related pipeline tools
-
-| Tool | Role |
-| --- | --- |
-| [`khsier`](https://github.com/zaubermaerchen/khsier) | Observe flow and stream boundaries |
-| [`pipewisp`](https://github.com/zaubermaerchen/pipewisp) | React to lifecycle transitions with hooks |
-| [`dam`](https://github.com/zaubermaerchen/dam) | Hold flow until release conditions are satisfied |
-| [`outage`](https://github.com/zaubermaerchen/outage) | Cut flow when a condition is triggered |
-| [`sluice`](https://github.com/zaubermaerchen/sluice) | Switch flow between open and closed states |
-
-## Development
-
-```sh
-go test ./...
-go test -race ./...
-go vet ./...
-```
-
-The implementation and existing tests were extracted from
-[pipewisp](https://github.com/zaubermaerchen/pipewisp/tree/c7fe99dc856c8b2d7703d87f321501b175d6c1e8).
