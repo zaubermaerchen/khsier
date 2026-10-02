@@ -107,8 +107,10 @@ only positive `--idle` durations.
 
 Input EOF returns `nil` after any accompanying data is successfully copied and
 EOS is delivered. Other input/output errors are returned without EOS, including
-output broken pipes and `io.ErrShortWrite`. CLI-specific handling of broken
-pipes and failed JSONL writes remains in the CLI.
+output broken pipes and `io.ErrShortWrite`. Returned errors preserve the
+underlying read/write error in the Go error chain, so callers can detect it
+with `errors.Is`. Exact error identity is not guaranteed. CLI-specific handling
+of broken pipes and failed JSONL writes remains in the CLI.
 
 There is no context or cancellation API. The caller is responsible for
 interrupting blocked input reads (for example, by closing a reader it owns),

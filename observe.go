@@ -45,6 +45,8 @@ type Options struct {
 // lifecycle transition. A nil emit ignores events. Observe borrows both streams
 // and never closes them. EOF is successful; other read/write errors are returned
 // without an EOS event, including broken pipes and short writes.
+// Returned errors preserve the underlying read/write error in the Go error chain
+// for detection with errors.Is; callers must not rely on exact error identity.
 //
 // Observe has no cancellation mechanism. The caller must interrupt a blocked
 // input Read, for example by closing its own reader. With idle enabled, one

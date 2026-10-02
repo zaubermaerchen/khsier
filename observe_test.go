@@ -5,6 +5,7 @@ package khsier_test
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"reflect"
 	"strings"
@@ -99,8 +100,8 @@ func TestObserveRejectsNegativeIdleBeforeSideEffects(t *testing.T) {
 }
 
 func TestObserveReturnsStreamErrorsWithoutEOS(t *testing.T) {
-	readErr := errors.New("read failure")
-	writeErr := errors.New("write failure")
+	readSentinel := errors.New("read failure")
+	writeSentinel := errors.New("write failure")
 	for _, idle := range []time.Duration{0, time.Second} {
 		for _, tc := range []struct {
 			name   string
@@ -109,8 +110,8 @@ func TestObserveReturnsStreamErrorsWithoutEOS(t *testing.T) {
 			want   error
 			data   string
 		}{
-			{"read", resultReader{data: "last", err: readErr}, &bytes.Buffer{}, readErr, "last"},
-			{"write", strings.NewReader("data"), failingWriter{err: writeErr}, writeErr, ""},
+			{"reader sentinel", resultReader{data: "last", err: fmt.Errorf("reader: %w", readSentinel)}, &bytes.Buffer{}, readSentinel, "last"},
+			{"writer sentinel", strings.NewReader("data"), failingWriter{err: fmt.Errorf("writer: %w", writeSentinel)}, writeSentinel, ""},
 			{"broken pipe", strings.NewReader("data"), failingWriter{err: syscall.EPIPE}, syscall.EPIPE, ""},
 			{"short write", strings.NewReader("data"), failingWriter{}, io.ErrShortWrite, ""},
 		} {
@@ -118,7 +119,7 @@ func TestObserveReturnsStreamErrorsWithoutEOS(t *testing.T) {
 				var events []khsier.EventKind
 				err := khsier.Observe(tc.reader, tc.writer, khsier.Options{Idle: idle}, func(event khsier.Event) { events = append(events, event.Kind) })
 				if !errors.Is(err, tc.want) {
-					t.Fatalf("error = %v, want %v", err, tc.want)
+					t.Fatalf("errors.Is(%v, %v) = false", err, tc.want)
 				}
 				if !reflect.DeepEqual(events, []khsier.EventKind{khsier.EventBOS}) {
 					t.Fatalf("events = %v", events)
