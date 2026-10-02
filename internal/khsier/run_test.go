@@ -546,3 +546,15 @@ func (w *blockingWriter) Write(p []byte) (int, error) {
 	<-w.release
 	return w.data.Write(p)
 }
+
+func TestRunReadBrokenPipeFails(t *testing.T) {
+	for _, args := range [][]string{nil, {"--idle", "1s"}} {
+		var output, events bytes.Buffer
+		if got := Run(args, fixedResultReader{err: syscall.EPIPE}, &output, &events); got != 1 {
+			t.Fatalf("Run(%v) = %d, want 1 for input EPIPE", args, got)
+		}
+		if len(events.Bytes()) != 0 {
+			t.Fatalf("events = %q", events.Bytes())
+		}
+	}
+}

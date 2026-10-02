@@ -113,6 +113,28 @@ final status is 1. No diagnostic is appended to the event stream.
 | event write failure | 1 |
 | invalid command-line arguments | 1 |
 
+## Go library
+
+The module root exports `Observe` for observing an `io.Reader` while copying to
+an `io.Writer`:
+
+```go
+err := khsier.Observe(in, out, khsier.Options{Idle: 250 * time.Millisecond}, func(event khsier.Event) {
+    switch event.Kind {
+    case khsier.EventBOS, khsier.EventIdle, khsier.EventResume, khsier.EventEOS:
+        // React to the observed stream boundary.
+    }
+})
+```
+
+Import `github.com/zaubermaerchen/khsier` and `time`. `Event` contains `Kind`
+(`EventKind`) and `Timestamp` (`time.Time`). The callback runs synchronously;
+`nil` ignores events. `Options{}` disables idle monitoring while retaining
+BOS/EOS. A negative `Idle` fails before any copying or event notification.
+`Observe` never closes either stream and returns read/write errors, including
+broken pipes and short writes. The CLI retains its own JSONL and exit-status
+handling. See the [library reference](docs/khsier.md#go-library) for details.
+
 ## Related pipeline tools
 
 | Tool | Role |

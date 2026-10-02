@@ -62,3 +62,56 @@ final status is 1. No diagnostic is appended to the event stream.
 | stdout failure other than broken pipe | 1 |
 | event write failure | 1 |
 | invalid command-line arguments | 1 |
+
+## Go library
+
+Import `github.com/zaubermaerchen/khsier`. The root package exposes:
+
+```go
+func Observe(in io.Reader, out io.Writer, opts Options, emit func(Event)) error
+
+type Options struct {
+    Idle time.Duration
+}
+
+type EventKind string
+
+const (
+    EventBOS    EventKind = "bos"
+    EventIdle   EventKind = "idle"
+    EventResume EventKind = "resume"
+    EventEOS    EventKind = "eos"
+)
+
+type Event struct {
+    Kind      EventKind
+    Timestamp time.Time
+}
+```
+
+Use named fields when constructing `Options` or `Event` values. Future versions
+may add fields. Events currently contain only their kind and observation time;
+`Timestamp` is a UTC `time.Time`, captured immediately before callback delivery.
+JSONL formatting belongs to the CLI.
+
+`Observe` owns the copy operation and borrows both streams without closing
+them. Its lifecycle ordering, no-read-ahead behavior, and idle semantics match
+the CLI described above. The callback runs synchronously on the observer's
+calling goroutine and does not return an error. A slow callback delays copying
+and further event processing. Passing `nil` ignores events while copying normally.
+
+`Options.Idle == 0` disables idle/resume monitoring; BOS/EOS remain enabled.
+A positive value enables idle monitoring. A negative value returns an error
+before reading, writing, or notifying any event. The CLI continues to accept
+only positive `--idle` durations.
+
+Input EOF returns `nil` after any accompanying data is successfully copied and
+EOS is delivered. Other input/output errors are returned without EOS, including
+output broken pipes and `io.ErrShortWrite`. CLI-specific handling of broken
+pipes and failed JSONL writes remains in the CLI.
+
+There is no context or cancellation API. The caller is responsible for
+interrupting blocked input reads (for example, by closing a reader it owns),
+and for managing blocked output writes or callbacks. With idle enabled, a
+persistent read worker performs one explicitly requested read at a time;
+`Observe` waits for that read and never closes the input to interrupt it.
