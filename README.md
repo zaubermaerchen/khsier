@@ -4,6 +4,9 @@
 byte-for-byte and writes lifecycle records as JSONL to stderr. Stderr is the
 event stream; passthrough data never shares stdout with events.
 
+**khsier** takes its name from *kiseru* (煙管), a traditional Japanese smoking
+pipe—a nod to the Unix pipes it observes.
+
 ## Install and build
 
 ```sh
