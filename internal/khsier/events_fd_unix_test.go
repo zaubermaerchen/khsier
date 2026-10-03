@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -37,7 +38,7 @@ func TestRunEventsFDRealOutputs(t *testing.T) {
 			// Fd intentionally gives a blocking descriptor for os.Pipe. The separate
 			// status-flag test below exercises nonblocking mode without calling Fd again.
 			fd := int(file.Fd())
-			flags := fdFlags(t, fd, unix.F_GETFL)
+			flags := configurableStatusFlags(fdFlags(t, fd, unix.F_GETFL))
 			descriptorFlags := fdFlags(t, fd, unix.F_GETFD)
 			info, err := file.Stat()
 			if err != nil {
@@ -51,7 +52,7 @@ func TestRunEventsFDRealOutputs(t *testing.T) {
 			if !bytes.Equal(output.Bytes(), data) || diagnostics.Len() != 0 {
 				t.Fatalf("stdout=%x stderr=%q", output.Bytes(), diagnostics.Bytes())
 			}
-			if got := fdFlags(t, fd, unix.F_GETFL); got != flags {
+			if got := configurableStatusFlags(fdFlags(t, fd, unix.F_GETFL)); got != flags {
 				t.Fatalf("status flags=%x want=%x", got, flags)
 			}
 			if got := fdFlags(t, fd, unix.F_GETFD); got != descriptorFlags {
@@ -103,6 +104,17 @@ func TestEventsFDDuplicateOwnershipAndFlags(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		closed := false
+		t.Cleanup(func() {
+			if !closed {
+				_ = events.Close()
+			}
+		})
+		// Setup itself must preserve the full F_GETFL word, including any
+		// kernel history bits, and every original descriptor flag.
+		if fdFlags(t, fd, unix.F_GETFL) != flags || fdFlags(t, fd, unix.F_GETFD) != originalFDFlags {
+			t.Fatal("setup changed original flags")
+		}
 		owned := int(events.(eventFD))
 		if owned == fd {
 			t.Fatal("borrowed descriptor was not duplicated")
@@ -113,13 +125,15 @@ func TestEventsFDDuplicateOwnershipAndFlags(t *testing.T) {
 		if _, err := events.Write([]byte("event")); err != nil {
 			t.Fatal(err)
 		}
-		if err := events.Close(); err != nil {
+		err = events.Close()
+		closed = true
+		if err != nil {
 			t.Fatal(err)
 		}
 		if _, err := unix.FcntlInt(uintptr(owned), unix.F_GETFD, 0); !errors.Is(err, unix.EBADF) {
 			t.Fatalf("duplicate remains open: %v", err)
 		}
-		if fdFlags(t, fd, unix.F_GETFL) != flags || fdFlags(t, fd, unix.F_GETFD) != originalFDFlags {
+		if configurableStatusFlags(fdFlags(t, fd, unix.F_GETFL)) != configurableStatusFlags(flags) || fdFlags(t, fd, unix.F_GETFD) != originalFDFlags {
 			t.Fatal("original flags changed")
 		}
 	}
@@ -204,4 +218,56 @@ func fdFlags(t *testing.T, fd, command int) int {
 		t.Fatalf("fcntl(%d,%d): %v", fd, command, err)
 	}
 	return flags
+}
+
+// Darwin exposes the kernel-only FWASWRITTEN history bit through F_GETFL.
+// Any successful write sets it on the shared open-file description. Compare
+// every configuration bit, while testing the intrinsic history change below.
+const darwinWasWritten = 0x00010000
+
+func configurableStatusFlags(flags int) int {
+	if runtime.GOOS == "darwin" || runtime.GOOS == "ios" {
+		return flags &^ darwinWasWritten
+	}
+	return flags
+}
+
+func TestDarwinWriteMaySetKernelHistoryFlag(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "ios" {
+		t.Skip("Darwin kernel write-history behavior")
+	}
+	for _, pipe := range []bool{false, true} {
+		t.Run(fmt.Sprint("pipe=", pipe), func(t *testing.T) {
+			var file, reader *os.File
+			var err error
+			if pipe {
+				reader, file, err = os.Pipe()
+				if err == nil {
+					defer reader.Close()
+				}
+			} else {
+				file, err = os.CreateTemp(t.TempDir(), "write-history")
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer file.Close()
+			fd := int(file.Fd())
+			before := fdFlags(t, fd, unix.F_GETFL)
+			fdBefore := fdFlags(t, fd, unix.F_GETFD)
+			// This control uses neither duplication nor khsier event routing.
+			if n, err := unix.Write(fd, []byte("x")); n != 1 || err != nil {
+				t.Fatalf("direct write=(%d,%v)", n, err)
+			}
+			after := fdFlags(t, fd, unix.F_GETFL)
+			// XNU currently exposes FWASWRITTEN here. A future kernel may
+			// hide it; neither behavior may change any configuration bit.
+			if after != before && after != before|darwinWasWritten {
+				t.Fatalf("status flags after direct write=%x before=%x", after, before)
+			}
+			if fdFlags(t, fd, unix.F_GETFD) != fdBefore {
+				t.Fatal("direct write changed descriptor flags")
+			}
+		})
+	}
 }
