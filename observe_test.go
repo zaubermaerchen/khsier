@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"reflect"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -63,7 +63,7 @@ func TestObserveCopiesDataReturnedWithEOF(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if output.String() != "last" || !reflect.DeepEqual(events, []khsier.EventKind{khsier.EventBOS, khsier.EventEOS}) {
+		if output.String() != "last" || !slices.Equal(events, []khsier.EventKind{khsier.EventBOS, khsier.EventEOS}) {
 			t.Fatalf("output = %q, events = %v", output.String(), events)
 		}
 	}
@@ -75,7 +75,7 @@ func TestObserveEmptyAndNilCallback(t *testing.T) {
 		if err := khsier.Observe(strings.NewReader(""), io.Discard, khsier.Options{Idle: idle}, func(event khsier.Event) { events = append(events, event.Kind) }); err != nil {
 			t.Fatal(err)
 		}
-		if !reflect.DeepEqual(events, []khsier.EventKind{khsier.EventEOS}) {
+		if !slices.Equal(events, []khsier.EventKind{khsier.EventEOS}) {
 			t.Fatalf("events = %v", events)
 		}
 		var output bytes.Buffer
@@ -121,7 +121,7 @@ func TestObserveReturnsStreamErrorsWithoutEOS(t *testing.T) {
 				if !errors.Is(err, tc.want) {
 					t.Fatalf("errors.Is(%v, %v) = false", err, tc.want)
 				}
-				if !reflect.DeepEqual(events, []khsier.EventKind{khsier.EventBOS}) {
+				if !slices.Equal(events, []khsier.EventKind{khsier.EventBOS}) {
 					t.Fatalf("events = %v", events)
 				}
 				if output, ok := tc.writer.(*bytes.Buffer); ok && output.String() != tc.data {

@@ -13,9 +13,9 @@ import (
 func TestIsBrokenPipeWindows(t *testing.T) {
 	for _, err := range []error{
 		syscall.ERROR_BROKEN_PIPE,
-		syscall.Errno(0xe8),
+		windowsErrorNoData,
 		syscall.EPIPE,
-		errors.Join(errors.New("wrapped"), syscall.Errno(0xe8)),
+		errors.Join(errors.New("wrapped"), windowsErrorNoData),
 	} {
 		if !isBrokenPipe(err) {
 			t.Errorf("isBrokenPipe(%v) = false, want true", err)
