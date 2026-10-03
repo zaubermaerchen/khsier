@@ -47,7 +47,12 @@ func (fd eventFD) Write(p []byte) (int, error) {
 	// os.File may use the runtime poller for borrowed nonblocking descriptors.
 	// A raw write preserves status flags and exposes each failed or short write
 	// to the emitter without retrying it.
-	return unix.Write(int(fd), p)
+	n, err := unix.Write(int(fd), p)
+	// A failed syscall reports -1; io.Writer requires a nonnegative count.
+	if n < 0 {
+		n = 0
+	}
+	return n, err
 }
 
 func (fd eventFD) Close() error { return unix.Close(int(fd)) }

@@ -19,10 +19,15 @@ option, khsier emits only `bos` and `eos`. With it, khsier can additionally
 emit `idle` and `resume`.
 
 `--events-fd N` and `--events-fd=N` select a writable decimal file descriptor
-of at least 3; duplicate specification is rejected. Regular files and pipes
-are supported. The descriptor is borrowed: khsier duplicates it internally,
-closes only that duplicate, and leaves the original descriptor and its
-mode/flags unchanged. Writes remain synchronous; nonblocking mode is not required.
+of at least 3; duplicate specification is rejected. Writable descriptors are
+accepted, including regular files and pipes. The descriptor is borrowed:
+khsier duplicates it internally, closes only that duplicate, and leaves the
+original descriptor and its mode/flags unchanged. Writes remain synchronous;
+blocking descriptors are recommended. A nonblocking descriptor is accepted, but if it is not ready for a
+write, `EAGAIN` (or `EWOULDBLOCK`) is an event-output failure: khsier disables
+later events, continues forwarding data, and returns status 1 without a runtime
+diagnostic. Interrupted writes (`EINTR`) also fail without retry. khsier does
+not wait for a nonblocking descriptor to become writable or change its flags.
 
 Dedicated event output is supported on AIX, Android, macOS (Darwin),
 DragonFly BSD, FreeBSD, illumos, iOS, Linux, NetBSD, OpenBSD, and Solaris.

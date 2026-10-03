@@ -54,7 +54,7 @@ func TestRunEventsFDSetupFailure(t *testing.T) {
 }
 
 func TestRunEventsFDFailures(t *testing.T) {
-	for _, writeErr := range []error{nil, syscall.EPIPE, io.ErrShortWrite} {
+	for _, writeErr := range []error{nil, syscall.EPIPE, syscall.EAGAIN, syscall.EINTR, io.ErrShortWrite} {
 		for _, closeErr := range []error{nil, errors.New("close failed")} {
 			for _, stdoutErr := range []error{nil, syscall.EPIPE} {
 				t.Run(strings.Join([]string{errorLabel(writeErr), errorLabel(closeErr), errorLabel(stdoutErr)}, "/"), func(t *testing.T) {

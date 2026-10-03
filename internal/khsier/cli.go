@@ -40,7 +40,7 @@ func parseArgs(args []string) (options, bool, error) {
 			var value string
 			if arg == "--events-fd" {
 				i++
-				if i >= len(args) {
+				if i >= len(args) || strings.HasPrefix(args[i], "--") {
 					return options{}, false, fmt.Errorf("missing value for --events-fd")
 				}
 				value = args[i]

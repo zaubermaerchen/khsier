@@ -91,6 +91,7 @@ func TestRunRejectsInvalidArgs(t *testing.T) {
 		{name: "positional argument", args: []string{"input"}, want: "unexpected positional argument input"},
 		{name: "missing idle", args: []string{"--idle"}, want: "missing value for --idle"},
 		{name: "option instead of idle", args: []string{"--idle", "--help"}, want: "missing value for --idle"},
+		{name: "option instead of events fd", args: []string{"--events-fd", "--idle=1s"}, want: "missing value for --events-fd"},
 		{name: "empty idle", args: []string{"--idle="}, want: "empty duration for --idle"},
 		{name: "zero idle", args: []string{"--idle", "0s"}, want: "--idle must be greater than zero"},
 		{name: "negative idle", args: []string{"--idle", "-1s"}, want: "--idle must be greater than zero"},

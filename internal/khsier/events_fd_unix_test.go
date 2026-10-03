@@ -211,6 +211,98 @@ func TestRunEventsFDPipeEPIPE(t *testing.T) {
 	}
 }
 
+func TestEventFDWriteEPIPE(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+	if err := reader.Close(); err != nil {
+		t.Fatal(err)
+	}
+	events, err := openEventsFD(int(writer.Fd()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer events.Close()
+	stopBrokenPipe := configureBrokenPipe()
+	defer stopBrokenPipe()
+	if n, err := events.Write([]byte("event")); n != 0 || !errors.Is(err, unix.EPIPE) {
+		t.Fatalf("Write=(%d,%v), want (0,EPIPE)", n, err)
+	}
+}
+
+func TestRunEventsFDFullNonblockingPipe(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	defer writer.Close()
+	fd := int(writer.Fd())
+	if err := unix.SetNonblock(fd, true); err != nil {
+		t.Fatal(err)
+	}
+	// Fill the last byte as well: a large write can return EAGAIN while a
+	// smaller event record would still fit in the remaining pipe capacity.
+	filler := bytes.Repeat([]byte("x"), 4096)
+	filled := 0
+	for {
+		n, err := unix.Write(fd, filler)
+		if errors.Is(err, unix.EAGAIN) {
+			if len(filler) > 1 {
+				filler = filler[:1]
+				continue
+			}
+			break
+		}
+		if err != nil || n <= 0 {
+			t.Fatalf("fill Write=(%d,%v)", n, err)
+		}
+		filled += n
+	}
+	flags := fdFlags(t, fd, unix.F_GETFL)
+	descriptorFlags := fdFlags(t, fd, unix.F_GETFD)
+	var output, diagnostics bytes.Buffer
+	// BOS fails before stdout is written. Drain in stdout.Write so that EOS
+	// would succeed if the emitter incorrectly attempted a later event.
+	drained := false
+	out := eventFDWriterFunc(func(p []byte) (int, error) {
+		if !drained {
+			data := make([]byte, filled)
+			if _, err := io.ReadFull(reader, data); err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(data, bytes.Repeat([]byte("x"), filled)) {
+				t.Fatal("event output changed pipe filler")
+			}
+			drained = true
+		}
+		return output.Write(p)
+	})
+	data := []byte{0, 128, 255, '\n'}
+	if got := Run([]string{fmt.Sprintf("--events-fd=%d", fd)}, bytes.NewReader(data), out, &diagnostics); got != 1 {
+		t.Fatalf("status=%d, want 1", got)
+	}
+	if !drained || !bytes.Equal(output.Bytes(), data) || diagnostics.Len() != 0 {
+		t.Fatalf("drained=%v stdout=%x stderr=%q", drained, output.Bytes(), diagnostics.Bytes())
+	}
+	if fdFlags(t, fd, unix.F_GETFL) != flags || fdFlags(t, fd, unix.F_GETFD) != descriptorFlags {
+		t.Fatal("event failure changed original flags")
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	remaining, err := io.ReadAll(reader)
+	if err != nil || len(remaining) != 0 {
+		t.Fatalf("events after failure=%q error=%v", remaining, err)
+	}
+}
+
+type eventFDWriterFunc func([]byte) (int, error)
+
+func (f eventFDWriterFunc) Write(p []byte) (int, error) { return f(p) }
+
 func fdFlags(t *testing.T, fd, command int) int {
 	t.Helper()
 	flags, err := unix.FcntlInt(uintptr(fd), command, 0)
