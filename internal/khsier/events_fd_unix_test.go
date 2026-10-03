@@ -1,0 +1,207 @@
+//go:build aix || android || darwin || dragonfly || freebsd || illumos || ios || linux || netbsd || openbsd || solaris
+
+package khsier
+
+// This file verifies real Unix event descriptors, ownership, and setup errors.
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"slices"
+	"strings"
+	"testing"
+
+	"golang.org/x/sys/unix"
+)
+
+func TestRunEventsFDRealOutputs(t *testing.T) {
+	for _, pipe := range []bool{false, true} {
+		t.Run(fmt.Sprint("pipe=", pipe), func(t *testing.T) {
+			var file, reader *os.File
+			var err error
+			if pipe {
+				reader, file, err = os.Pipe()
+				if err == nil {
+					defer reader.Close()
+				}
+			} else {
+				file, err = os.CreateTemp(t.TempDir(), "events")
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer file.Close()
+			// Fd intentionally gives a blocking descriptor for os.Pipe. The separate
+			// status-flag test below exercises nonblocking mode without calling Fd again.
+			fd := int(file.Fd())
+			flags := fdFlags(t, fd, unix.F_GETFL)
+			descriptorFlags := fdFlags(t, fd, unix.F_GETFD)
+			info, err := file.Stat()
+			if err != nil {
+				t.Fatal(err)
+			}
+			data := []byte{0, 128, 255, '\n'}
+			var output, diagnostics bytes.Buffer
+			if got := Run([]string{fmt.Sprintf("--events-fd=%d", fd)}, bytes.NewReader(data), &output, &diagnostics); got != 0 {
+				t.Fatalf("status=%d stderr=%q", got, diagnostics.Bytes())
+			}
+			if !bytes.Equal(output.Bytes(), data) || diagnostics.Len() != 0 {
+				t.Fatalf("stdout=%x stderr=%q", output.Bytes(), diagnostics.Bytes())
+			}
+			if got := fdFlags(t, fd, unix.F_GETFL); got != flags {
+				t.Fatalf("status flags=%x want=%x", got, flags)
+			}
+			if got := fdFlags(t, fd, unix.F_GETFD); got != descriptorFlags {
+				t.Fatalf("descriptor flags=%x want=%x", got, descriptorFlags)
+			}
+			after, err := file.Stat()
+			if err != nil || after.Mode() != info.Mode() {
+				t.Fatalf("mode/open changed: %v", err)
+			}
+			var events []byte
+			if pipe {
+				if _, err := file.Write([]byte("sentinel\n")); err != nil {
+					t.Fatalf("original write: %v", err)
+				}
+				file.Close()
+				events, err = io.ReadAll(reader)
+				events = bytes.TrimSuffix(events, []byte("sentinel\n"))
+			} else {
+				if _, err := file.Seek(0, io.SeekStart); err != nil {
+					t.Fatal(err)
+				}
+				events, err = io.ReadAll(file)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if names := eventNames(t, events); !slices.Equal(names, []string{"bos", "eos"}) {
+				t.Fatalf("events=%v", names)
+			}
+		})
+	}
+}
+
+func TestEventsFDDuplicateOwnershipAndFlags(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	defer writer.Close()
+	fd := int(writer.Fd())
+	for _, nonblock := range []bool{false, true} {
+		if err := unix.SetNonblock(fd, nonblock); err != nil {
+			t.Fatal(err)
+		}
+		flags := fdFlags(t, fd, unix.F_GETFL)
+		originalFDFlags := fdFlags(t, fd, unix.F_GETFD)
+		events, err := openEventsFD(fd)
+		if err != nil {
+			t.Fatal(err)
+		}
+		owned := int(events.(eventFD))
+		if owned == fd {
+			t.Fatal("borrowed descriptor was not duplicated")
+		}
+		if fdFlags(t, owned, unix.F_GETFD)&unix.FD_CLOEXEC == 0 {
+			t.Fatal("duplicate lacks close-on-exec")
+		}
+		if _, err := events.Write([]byte("event")); err != nil {
+			t.Fatal(err)
+		}
+		if err := events.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := unix.FcntlInt(uintptr(owned), unix.F_GETFD, 0); !errors.Is(err, unix.EBADF) {
+			t.Fatalf("duplicate remains open: %v", err)
+		}
+		if fdFlags(t, fd, unix.F_GETFL) != flags || fdFlags(t, fd, unix.F_GETFD) != originalFDFlags {
+			t.Fatal("original flags changed")
+		}
+	}
+}
+
+func TestRunEventsFDUnusable(t *testing.T) {
+	path := t.TempDir() + "/events"
+	if err := os.WriteFile(path, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	readOnly, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer readOnly.Close()
+	directory, err := os.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer directory.Close()
+	for _, fd := range []int{int(readOnly.Fd()), int(directory.Fd()), 2147483647} {
+		input := newTimedReader(readStep{data: []byte("data")})
+		var output, diagnostics bytes.Buffer
+		if got := Run([]string{fmt.Sprintf("--events-fd=%d", fd)}, input, &output, &diagnostics); got != 1 {
+			t.Fatalf("status=%d fd=%d", got, fd)
+		}
+		if input.readCount() != 0 || output.Len() != 0 || !strings.HasPrefix(diagnostics.String(), "khsier: --events-fd:") {
+			t.Fatalf("reads=%d stdout=%q stderr=%q", input.readCount(), output.Bytes(), diagnostics.Bytes())
+		}
+	}
+}
+
+func TestEventsFDDuplicationFailureAndSetupCleanup(t *testing.T) {
+	file, err := os.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	fd := int(file.Fd())
+	sentinel := errors.New("dup failed")
+	if _, err := duplicateEventsFD(fd, func(int) (int, error) { return -1, sentinel }); !errors.Is(err, sentinel) {
+		t.Fatalf("dup error=%v", err)
+	}
+	owned := -1
+	_, err = duplicateEventsFD(fd, func(fd int) (int, error) { var err error; owned, err = unix.Dup(fd); return owned, err })
+	if err == nil {
+		t.Fatal("read-only directory accepted")
+	}
+	if _, err := unix.FcntlInt(uintptr(owned), unix.F_GETFD, 0); !errors.Is(err, unix.EBADF) {
+		t.Fatalf("setup leaked duplicate: %v", err)
+	}
+	_ = fdFlags(t, fd, unix.F_GETFD)
+}
+
+func TestRunEventsFDPipeEPIPE(t *testing.T) {
+	for _, brokenStdout := range []bool{false, true} {
+		reader, writer, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		reader.Close()
+		var output, diagnostics bytes.Buffer
+		var out io.Writer = &output
+		if brokenStdout {
+			out = errorWriter{err: unix.EPIPE}
+		}
+		got := Run([]string{fmt.Sprintf("--events-fd=%d", writer.Fd())}, strings.NewReader("data"), out, &diagnostics)
+		writer.Close()
+		if got != 1 || diagnostics.Len() != 0 {
+			t.Fatalf("status=%d stderr=%q", got, diagnostics.Bytes())
+		}
+		if !brokenStdout && output.String() != "data" {
+			t.Fatalf("stdout=%q", output.Bytes())
+		}
+	}
+}
+
+func fdFlags(t *testing.T, fd, command int) int {
+	t.Helper()
+	flags, err := unix.FcntlInt(uintptr(fd), command, 0)
+	if err != nil {
+		t.Fatalf("fcntl(%d,%d): %v", fd, command, err)
+	}
+	return flags
+}

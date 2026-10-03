@@ -65,7 +65,7 @@ func TestRunHelpAndVersion(t *testing.T) {
 	if got := Run([]string{"--help"}, strings.NewReader("input"), &output, &diagnostics); got != 0 {
 		t.Fatalf("Run(--help) = %d, want 0", got)
 	}
-	if want := "Usage: khsier [--idle DURATION]\n       khsier --version\n"; output.String() != want {
+	if want := "Usage: khsier [--idle DURATION] [--events-fd N]\n       khsier --version\n"; output.String() != want {
 		t.Fatalf("help = %q, want %q", output.String(), want)
 	}
 	if diagnostics.Len() != 0 {
