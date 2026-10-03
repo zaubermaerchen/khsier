@@ -1,10 +1,13 @@
 package khsier
 
+// This file verifies CLI stream boundaries, failures, and idle behavior.
+
 import (
 	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -27,7 +30,7 @@ func TestRunEmitsBoundariesBeforePassthrough(t *testing.T) {
 		t.Fatal("stdout write happened before bos event")
 	}
 	want := []string{"bos", "eos"}
-	if got := eventNames(t, events.Bytes()); !slicesEqual(got, want) {
+	if got := eventNames(t, events.Bytes()); !slices.Equal(got, want) {
 		t.Fatalf("events = %#v, want %#v", got, want)
 	}
 }
@@ -46,7 +49,7 @@ func TestRunIdleEmitsIdleAndResume(t *testing.T) {
 	if got, want := output.String(), "firstsecond"; got != want {
 		t.Fatalf("stdout = %q, want %q", got, want)
 	}
-	if got, want := eventNames(t, events.Bytes()), []string{"bos", "idle", "resume", "eos"}; !slicesEqual(got, want) {
+	if got, want := eventNames(t, events.Bytes()), []string{"bos", "idle", "resume", "eos"}; !slices.Equal(got, want) {
 		t.Fatalf("events = %#v, want %#v", got, want)
 	}
 }
@@ -68,7 +71,7 @@ func TestRunDoesNotEmitIdleWhileStdoutIsBlocked(t *testing.T) {
 		t.Fatal("timed out waiting for first stdout write")
 	}
 	time.Sleep(40 * time.Millisecond)
-	if got, want := eventNames(t, events.Bytes()), []string{"bos"}; !slicesEqual(got, want) {
+	if got, want := eventNames(t, events.Bytes()), []string{"bos"}; !slices.Equal(got, want) {
 		t.Fatalf("events while stdout blocked = %#v, want %#v", got, want)
 	}
 	if got := reader.readCount(); got != 1 {
@@ -78,12 +81,12 @@ func TestRunDoesNotEmitIdleWhileStdoutIsBlocked(t *testing.T) {
 	close(writer.release)
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if got := eventNames(t, events.Bytes()); slicesEqual(got, []string{"bos", "idle"}) {
+		if got := eventNames(t, events.Bytes()); slices.Equal(got, []string{"bos", "idle"}) {
 			break
 		}
 		time.Sleep(time.Millisecond)
 	}
-	if got, want := eventNames(t, events.Bytes()), []string{"bos", "idle"}; !slicesEqual(got, want) {
+	if got, want := eventNames(t, events.Bytes()), []string{"bos", "idle"}; !slices.Equal(got, want) {
 		t.Fatalf("events after stdout resumed = %#v, want %#v", got, want)
 	}
 	reader.releaseRead()
@@ -95,7 +98,7 @@ func TestRunDoesNotEmitIdleWhileStdoutIsBlocked(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for Run")
 	}
-	if got, want := eventNames(t, events.Bytes()), []string{"bos", "idle", "resume", "eos"}; !slicesEqual(got, want) {
+	if got, want := eventNames(t, events.Bytes()), []string{"bos", "idle", "resume", "eos"}; !slices.Equal(got, want) {
 		t.Fatalf("events after stdout resumed = %#v, want %#v", got, want)
 	}
 }
@@ -110,7 +113,7 @@ func TestRunEmitsDataAndEOSWhenReadReturnsDataEOF(t *testing.T) {
 	if output.String() != "last" {
 		t.Fatalf("stdout = %q, want last", output.String())
 	}
-	if got, want := eventNames(t, events.Bytes()), []string{"bos", "eos"}; !slicesEqual(got, want) {
+	if got, want := eventNames(t, events.Bytes()), []string{"bos", "eos"}; !slices.Equal(got, want) {
 		t.Fatalf("events = %#v, want %#v", got, want)
 	}
 }
@@ -125,7 +128,7 @@ func TestRunIdleEmitsEOSWhenReadReturnsDataEOF(t *testing.T) {
 	if output.String() != "last" {
 		t.Fatalf("stdout = %q, want last", output.String())
 	}
-	if got, want := eventNames(t, events.Bytes()), []string{"bos", "eos"}; !slicesEqual(got, want) {
+	if got, want := eventNames(t, events.Bytes()), []string{"bos", "eos"}; !slices.Equal(got, want) {
 		t.Fatalf("events = %#v, want %#v", got, want)
 	}
 }
@@ -179,7 +182,7 @@ func TestRunIdleZeroReadDoesNotResetTimer(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for Run")
 	}
-	if got, want := eventNames(t, events.Bytes()), []string{"bos", "idle", "resume", "eos"}; !slicesEqual(got, want) {
+	if got, want := eventNames(t, events.Bytes()), []string{"bos", "idle", "resume", "eos"}; !slices.Equal(got, want) {
 		t.Fatalf("events = %#v, want %#v", got, want)
 	}
 }
@@ -211,7 +214,7 @@ func TestRunEmptyInputEmitsEOSWithoutBOS(t *testing.T) {
 	if got := Run(nil, strings.NewReader(""), &output, &events); got != 0 {
 		t.Fatalf("Run() = %d, want 0", got)
 	}
-	if got, want := eventNames(t, events.Bytes()), []string{"eos"}; !slicesEqual(got, want) {
+	if got, want := eventNames(t, events.Bytes()), []string{"eos"}; !slices.Equal(got, want) {
 		t.Fatalf("events = %#v, want %#v", got, want)
 	}
 }
@@ -221,7 +224,7 @@ func TestRunOutputFailureDoesNotEmitEOS(t *testing.T) {
 	if got := Run(nil, strings.NewReader("input"), errorWriter{err: errors.New("output unavailable")}, &events); got != 1 {
 		t.Fatalf("Run() = %d, want 1", got)
 	}
-	if got, want := eventNames(t, events.Bytes()), []string{"bos"}; !slicesEqual(got, want) {
+	if got, want := eventNames(t, events.Bytes()), []string{"bos"}; !slices.Equal(got, want) {
 		t.Fatalf("events = %#v, want %#v", got, want)
 	}
 }
@@ -231,7 +234,7 @@ func TestRunBrokenPipeSucceedsWithoutEOS(t *testing.T) {
 	if got := Run(nil, strings.NewReader("input"), errorWriter{err: syscall.EPIPE}, &events); got != 0 {
 		t.Fatalf("Run() = %d, want 0", got)
 	}
-	if got, want := eventNames(t, events.Bytes()), []string{"bos"}; !slicesEqual(got, want) {
+	if got, want := eventNames(t, events.Bytes()), []string{"bos"}; !slices.Equal(got, want) {
 		t.Fatalf("events = %#v, want %#v", got, want)
 	}
 }
@@ -241,7 +244,7 @@ func TestRunShortStdoutWriteFailsWithoutEOS(t *testing.T) {
 	if got := Run(nil, strings.NewReader("input"), partialWriter{max: 1}, &events); got != 1 {
 		t.Fatalf("Run() = %d, want 1", got)
 	}
-	if got, want := eventNames(t, events.Bytes()), []string{"bos"}; !slicesEqual(got, want) {
+	if got, want := eventNames(t, events.Bytes()), []string{"bos"}; !slices.Equal(got, want) {
 		t.Fatalf("events = %#v, want %#v", got, want)
 	}
 }
@@ -254,7 +257,7 @@ func TestRunInvalidStdoutWriteCountFailsWithoutEOS(t *testing.T) {
 				if got := Run(args, strings.NewReader("input"), invalidCountWriter{n: count, err: err}, &events); got != 1 {
 					t.Fatalf("Run(%v) with Write returning (%d, %v) = %d, want 1", args, count, err, got)
 				}
-				if got, want := eventNames(t, events.Bytes()), []string{"bos"}; !slicesEqual(got, want) {
+				if got, want := eventNames(t, events.Bytes()), []string{"bos"}; !slices.Equal(got, want) {
 					t.Fatalf("events = %#v, want %#v", got, want)
 				}
 			}
@@ -281,7 +284,7 @@ func TestRunStopsEventEmissionAfterFailure(t *testing.T) {
 	if output.String() != "input" {
 		t.Fatalf("stdout = %q, want input", output.String())
 	}
-	if got, want := eventNames(t, events.Bytes()), []string{"bos"}; !slicesEqual(got, want) {
+	if got, want := eventNames(t, events.Bytes()), []string{"bos"}; !slices.Equal(got, want) {
 		t.Fatalf("events = %#v, want %#v", got, want)
 	}
 }
@@ -315,18 +318,6 @@ func eventNames(t *testing.T, data []byte) []string {
 		names = append(names, record.Event)
 	}
 	return names
-}
-
-func slicesEqual[T comparable](a, b []T) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 type errorWriter struct{ err error }
