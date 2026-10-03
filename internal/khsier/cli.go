@@ -5,11 +5,14 @@ package khsier
 import (
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 )
 
 type options struct {
+	eventsFD    int
+	eventsFDSet bool
 	idle        time.Duration
 	idleSet     bool
 	showVersion bool
@@ -30,6 +33,25 @@ func parseArgs(args []string) (options, bool, error) {
 				return options{}, false, fmt.Errorf("%s cannot be combined with other arguments", arg)
 			}
 			return options{}, true, nil
+		case arg == "--events-fd" || strings.HasPrefix(arg, "--events-fd="):
+			if opts.eventsFDSet {
+				return options{}, false, fmt.Errorf("--events-fd specified more than once")
+			}
+			var value string
+			if arg == "--events-fd" {
+				i++
+				if i >= len(args) || strings.HasPrefix(args[i], "--") {
+					return options{}, false, fmt.Errorf("missing value for --events-fd")
+				}
+				value = args[i]
+			} else {
+				value = strings.TrimPrefix(arg, "--events-fd=")
+			}
+			fd, err := parseEventsFD(value)
+			if err != nil {
+				return options{}, false, err
+			}
+			opts.eventsFD, opts.eventsFDSet = fd, true
 		case arg == "--idle":
 			if opts.idleSet {
 				return options{}, false, fmt.Errorf("--idle specified more than once")
@@ -85,6 +107,24 @@ func parseDuration(value string) (time.Duration, error) {
 	return duration, nil
 }
 
+func parseEventsFD(value string) (int, error) {
+	if value == "" {
+		return 0, fmt.Errorf("missing value for --events-fd")
+	}
+	for _, digit := range value {
+		if digit < '0' || digit > '9' {
+			return 0, fmt.Errorf("--events-fd requires a decimal FD of at least 3")
+		}
+	}
+	// Unix descriptors are signed C ints; prevent wider values from wrapping
+	// onto an unrelated open descriptor at the syscall boundary.
+	fd, err := strconv.ParseInt(value, 10, 32)
+	if err != nil || fd < 3 {
+		return 0, fmt.Errorf("--events-fd requires a decimal FD of at least 3")
+	}
+	return int(fd), nil
+}
+
 func printUsage(out io.Writer) {
-	_, _ = io.WriteString(out, "Usage: khsier [--idle DURATION]\n       khsier --version\n")
+	_, _ = io.WriteString(out, "Usage: khsier [--idle DURATION] [--events-fd N]\n       khsier --version\n")
 }

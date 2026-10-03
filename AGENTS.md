@@ -2,10 +2,10 @@
 
 ## Design constraints
 
-`khsier` は stdin を stdout に byte-for-byte で渡し、stream boundary を stderr の JSONL で観測する小さなツールです。公開仕様は [README](README.md) と [khsier reference](docs/khsier.md) を正とします。
+`khsier` は stdin を stdout に byte-for-byte で渡し、stream boundary を既定では stderr、`--events-fd` 指定時は専用 FD の JSONL で観測する小さなツールです。公開仕様は [README](README.md) と [khsier reference](docs/khsier.md) を正とします。
 
 - stdout は元のストリームを渡すデータパス専用とし、event や診断を混ぜません。
-- stderr は lifecycle event の JSONL 専用とし、stream 処理中の診断を追加しません。
+- lifecycle event は既定では stderr、`--events-fd` 指定時は専用 FD の JSONL に同期出力します。起動時の診断は常に stderr に出すため、既定の stderr は無条件に JSONL 専用ではありません。stream 処理中の診断は追加しません。
 - event は synchronous に書き込み、公開されている順序と失敗時の挙動を維持します。
 - 本体機能を増やす前に Unix pipe による composition を優先し、core を汎用 event processor / workflow engine 化しません。
 - hook、通知、LED、metrics などの side effect は外部ツールに委ねます。

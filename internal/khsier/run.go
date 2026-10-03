@@ -47,6 +47,10 @@ func (emitter *eventEmitter) status() int {
 // Run executes khsier with the supplied arguments and streams. It returns the
 // process exit status without calling os.Exit.
 func Run(args []string, in io.Reader, out, events io.Writer) int {
+	return runWithEventsOpener(args, in, out, events, openEventsFD)
+}
+
+func runWithEventsOpener(args []string, in io.Reader, out, events io.Writer, openEvents func(int) (io.WriteCloser, error)) int {
 	opts, help, err := parseArgs(args)
 	if err != nil {
 		reportDiagnostic(events, err)
@@ -61,12 +65,28 @@ func Run(args []string, in io.Reader, out, events io.Writer) int {
 		return 0
 	}
 
+	var dedicated io.WriteCloser
+	if opts.eventsFDSet {
+		dedicated, err = openEvents(opts.eventsFD)
+		if err != nil {
+			reportDiagnostic(events, fmt.Errorf("--events-fd: %w", err))
+			return 1
+		}
+		events = dedicated
+	}
+
 	stopBrokenPipe := configureBrokenPipe()
 	defer stopBrokenPipe()
 
 	emitter := &eventEmitter{out: events}
 	stdout := &outputWriter{Writer: out}
-	if err := observer.Observe(in, stdout, observer.Options{Idle: opts.idle}, emitter.emit); err != nil && !isBrokenPipe(stdout.err) {
+	err = observer.Observe(in, stdout, observer.Options{Idle: opts.idle}, emitter.emit)
+	// Closing the owned duplicate is part of event delivery, even after stdout
+	// EPIPE. EOS records input completion, not event-output durability.
+	if dedicated != nil && dedicated.Close() != nil {
+		emitter.failed = true
+	}
+	if err != nil && !isBrokenPipe(stdout.err) {
 		return 1
 	}
 	return emitter.status()

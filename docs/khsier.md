@@ -1,13 +1,14 @@
 # khsier
 
 `khsier` is a small stream-boundary observer. It copies stdin to stdout
-byte-for-byte and writes lifecycle records as JSONL to stderr. Stderr is the
-event stream; passthrough data never shares stdout with events.
+byte-for-byte and writes lifecycle records as JSONL to stderr by default.
+Use `--events-fd` on supported Unix systems to dedicate a separate descriptor
+to events. Passthrough data never shares stdout with events.
 
 ## Usage
 
 ```text
-khsier [--idle DURATION]
+khsier [--idle DURATION] [--events-fd N]
 khsier --help
 khsier --version
 ```
@@ -16,6 +17,32 @@ khsier --version
 `2s`. Both `--idle DURATION` and `--idle=DURATION` are supported. Without the
 option, khsier emits only `bos` and `eos`. With it, khsier can additionally
 emit `idle` and `resume`.
+
+`--events-fd N` and `--events-fd=N` select a writable decimal file descriptor
+of at least 3; duplicate specification is rejected. Writable descriptors are
+accepted, including regular files and pipes. The descriptor is borrowed:
+khsier duplicates it internally, closes only that duplicate, and leaves the
+original descriptor and its mode/flags unchanged. Writes remain synchronous;
+blocking descriptors are recommended. A nonblocking descriptor is accepted, but if it is not ready for a
+write, `EAGAIN` (or `EWOULDBLOCK`) is an event-output failure: khsier disables
+later events, continues forwarding data, and returns status 1 without a runtime
+diagnostic. Interrupted writes (`EINTR`) also fail without retry. khsier does
+not wait for a nonblocking descriptor to become writable or change its flags.
+
+Dedicated event output is supported on AIX, Android, macOS (Darwin),
+DragonFly BSD, FreeBSD, illumos, iOS, Linux, NetBSD, OpenBSD, and Solaris.
+Windows and other unsupported systems retain default output behavior but
+reject an explicit `--events-fd` before reading stdin.
+
+```sh
+producer | khsier --events-fd 3 3>events.jsonl | consumer
+```
+
+The selected descriptor receives only lifecycle JSONL. Human-readable startup
+diagnostics always go to stderr. Without `--events-fd`, stderr receives both
+lifecycle events and possible startup diagnostics, so it is not unconditionally
+JSONL. Invalid arguments or an unusable descriptor fail before reading stdin,
+with status 1 and a stderr diagnostic; events never fall back to stderr.
 
 Every event is one JSON object with exactly these fields:
 
@@ -51,17 +78,26 @@ normal process-termination behavior. Unix SIGPIPE is handled only so a
 downstream broken pipe can be observed as EPIPE and treated as a successful
 early termination; other stdout failures return status 1. If an event write
 fails, subsequent event writes are disabled, passthrough continues, and the
-final status is 1. No diagnostic is appended to the event stream.
+final status is 1, even if stdout subsequently fails with EPIPE. Event writes
+are not retried and the destination does not change. No runtime diagnostic is
+appended to either the event stream or stderr. A failed event write can leave
+an incomplete final JSONL record.
+
+Failure to close the internal event descriptor duplicate also returns status 1,
+without a diagnostic. EOS means input EOF was observed and its accompanying
+data was successfully forwarded; it does not guarantee event-output durability.
+A subsequent close failure does not retract an already delivered EOS. khsier
+does not call fsync.
 
 ## Exit status
 
 | Condition | Status |
 | --- | ---: |
 | stdin EOF and all writes succeed | 0 |
-| downstream broken pipe | 0 |
-| stdout failure other than broken pipe | 1 |
-| event write failure | 1 |
-| invalid command-line arguments | 1 |
+| downstream broken pipe, with no event-output failure | 0 |
+| input failure or stdout failure other than broken pipe | 1 |
+| event write or internal event descriptor close failure | 1 |
+| invalid arguments, unusable event FD, setup failure, or unsupported explicit option | 1 |
 
 ## Go library
 
