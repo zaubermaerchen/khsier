@@ -246,6 +246,22 @@ func TestRunShortStdoutWriteFailsWithoutEOS(t *testing.T) {
 	}
 }
 
+func TestRunInvalidStdoutWriteCountFailsWithoutEOS(t *testing.T) {
+	for _, args := range [][]string{nil, {"--idle", "1s"}} {
+		for _, count := range []int{-1, len("input") + 1} {
+			for _, err := range []error{nil, syscall.EPIPE} {
+				var events bytes.Buffer
+				if got := Run(args, strings.NewReader("input"), invalidCountWriter{n: count, err: err}, &events); got != 1 {
+					t.Fatalf("Run(%v) with Write returning (%d, %v) = %d, want 1", args, count, err, got)
+				}
+				if got, want := eventNames(t, events.Bytes()), []string{"bos"}; !slicesEqual(got, want) {
+					t.Fatalf("events = %#v, want %#v", got, want)
+				}
+			}
+		}
+	}
+}
+
 func TestRunEventFailureContinuesPassthroughAndFails(t *testing.T) {
 	var output bytes.Buffer
 	if got := Run(nil, strings.NewReader("input"), &output, errorWriter{err: errors.New("stderr unavailable")}); got != 1 {
@@ -316,6 +332,13 @@ func slicesEqual[T comparable](a, b []T) bool {
 type errorWriter struct{ err error }
 
 func (w errorWriter) Write([]byte) (int, error) { return 0, w.err }
+
+type invalidCountWriter struct {
+	n   int
+	err error
+}
+
+func (w invalidCountWriter) Write([]byte) (int, error) { return w.n, w.err }
 
 type partialWriter struct{ max int }
 

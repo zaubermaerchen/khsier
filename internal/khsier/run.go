@@ -83,6 +83,8 @@ func (out *outputWriter) Write(p []byte) (int, error) {
 	n, err := out.Writer.Write(p)
 	out.err = err
 	if n < 0 || n > len(p) {
+		// An invalid count takes precedence over EPIPE in Observe too, so it
+		// must not become a successful broken-pipe termination here.
 		out.err = io.ErrShortWrite
 	}
 	return n, err
