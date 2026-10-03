@@ -145,6 +145,20 @@ func runIdle(idle time.Duration, in io.Reader, out io.Writer, emit func(Event)) 
 	var timerC <-chan time.Time
 	seenData := false
 	isIdle := false
+	markIdle := func() {
+		if seenData && !isIdle {
+			notify(emit, EventIdle)
+			isIdle = true
+		}
+	}
+	pollIdleTimer := func() {
+		select {
+		case <-timerC:
+			timerC = nil
+			markIdle()
+		default:
+		}
+	}
 
 	stopTimer := func() {
 		if timer == nil {
@@ -173,18 +187,10 @@ func runIdle(idle time.Duration, in io.Reader, out io.Writer, emit func(Event)) 
 		case result = <-readDone:
 			if result.n > 0 || result.err != nil {
 				stopTimer()
-			} else if timerC != nil {
+			} else {
 				// A Reader may legally return (0, nil). Keep the existing
 				// observation window instead of treating that as fresh activity.
-				select {
-				case <-timerC:
-					timerC = nil
-					if seenData && !isIdle {
-						notify(emit, EventIdle)
-						isIdle = true
-					}
-				default:
-				}
+				pollIdleTimer()
 			}
 		case <-timerC:
 			timerC = nil
@@ -192,15 +198,11 @@ func runIdle(idle time.Duration, in io.Reader, out io.Writer, emit func(Event)) 
 			// become ready together; the bytes were observed before the timer.
 			select {
 			case result = <-readDone:
-				if result.n == 0 && result.err == nil && seenData && !isIdle {
-					notify(emit, EventIdle)
-					isIdle = true
+				if result.n == 0 && result.err == nil {
+					markIdle()
 				}
 			default:
-				if seenData && !isIdle {
-					notify(emit, EventIdle)
-					isIdle = true
-				}
+				markIdle()
 				continue
 			}
 		}
@@ -230,17 +232,7 @@ func runIdle(idle time.Duration, in io.Reader, out io.Writer, emit func(Event)) 
 			// reports no data. The timer remains the idle boundary; this bounded
 			// delay does not reset it.
 			time.Sleep(zeroReadBackoff)
-			if timerC != nil {
-				select {
-				case <-timerC:
-					timerC = nil
-					if seenData && !isIdle {
-						notify(emit, EventIdle)
-						isIdle = true
-					}
-				default:
-				}
-			}
+			pollIdleTimer()
 		}
 		worker.request(buffer)
 		if seenData && !isIdle && timerC == nil {
