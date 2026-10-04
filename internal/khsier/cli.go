@@ -11,11 +11,12 @@ import (
 )
 
 type options struct {
-	eventsFD    int
-	eventsFDSet bool
-	idle        time.Duration
-	idleSet     bool
-	showVersion bool
+	eventsFD     int
+	eventsFDSet  bool
+	idle         time.Duration
+	idleSet      bool
+	showVersion  bool
+	showDescribe bool
 }
 
 func parseArgs(args []string) (options, bool, error) {
@@ -23,6 +24,11 @@ func parseArgs(args []string) (options, bool, error) {
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch {
+		case arg == "--describe":
+			if len(args) != 1 {
+				return options{}, false, fmt.Errorf("--describe cannot be combined with other arguments")
+			}
+			return options{showDescribe: true}, false, nil
 		case arg == "--version":
 			if len(args) != 1 {
 				return options{}, false, fmt.Errorf("--version cannot be combined with other arguments")
@@ -126,5 +132,5 @@ func parseEventsFD(value string) (int, error) {
 }
 
 func printUsage(out io.Writer) {
-	_, _ = io.WriteString(out, "Usage: khsier [--idle DURATION] [--events-fd N]\n       khsier --version\n")
+	_, _ = io.WriteString(out, "Usage: khsier [--idle DURATION] [--events-fd N]\n       khsier --version\n       khsier --describe\n")
 }

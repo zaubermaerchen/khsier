@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -122,5 +123,30 @@ func processExitCode(t *testing.T, cmd *exec.Cmd) int {
 		<-done
 		t.Fatalf("process did not exit before timeout")
 		return -1
+	}
+}
+
+func TestSubprocessDescribeBrokenPipeFailsWithDiagnostic(t *testing.T) {
+	binary := buildKhsierBinary(t)
+	readEnd, writeEnd, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := readEnd.Close(); err != nil {
+		t.Fatal(err)
+	}
+	defer writeEnd.Close()
+	cmd := exec.Command(binary, "--describe")
+	cmd.Stdout = writeEnd
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if status := processExitCode(t, cmd); status != 1 {
+		t.Fatalf("exit status=%d want 1; stderr=%q", status, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "khsier: --describe:") || strings.Contains(stderr.String(), `"event"`) {
+		t.Fatalf("stderr=%q, want output failure diagnostic only", stderr.String())
 	}
 }
