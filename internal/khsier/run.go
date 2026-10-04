@@ -65,6 +65,18 @@ func runWithEventsOpener(args []string, in io.Reader, out, events io.Writer, ope
 		return 0
 	}
 
+	if opts.showDescribe {
+		// The JSON is the result, so let stdout EPIPE return an error rather
+		// than terminating the process before its diagnostic and exit status.
+		stopBrokenPipe := configureBrokenPipe()
+		defer stopBrokenPipe()
+		if err := printDescription(out); err != nil {
+			reportDiagnostic(events, fmt.Errorf("--describe: %w", err))
+			return 1
+		}
+		return 0
+	}
+
 	var dedicated io.WriteCloser
 	if opts.eventsFDSet {
 		dedicated, err = openEvents(opts.eventsFD)

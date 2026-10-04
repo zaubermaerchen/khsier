@@ -64,6 +64,7 @@ and idle/resume transitions. See the [reference](docs/khsier.md) for precise sem
 khsier [--idle DURATION] [--events-fd N]
 khsier --help
 khsier --version
+khsier --describe
 ```
 
 `--idle` is optional and accepts a positive Go duration such as `250ms` or
@@ -144,6 +145,9 @@ does not call fsync.
 
 ## Exit status
 
+The following table applies to stream mode. See the description section below
+for `--describe` exit statuses.
+
 | Condition | Status |
 | --- | ---: |
 | stdin EOF and all writes succeed | 0 |
@@ -151,6 +155,33 @@ does not call fsync.
 | input failure or stdout failure other than broken pipe | 1 |
 | event write or internal event descriptor close failure | 1 |
 | invalid arguments, unusable event FD, setup failure, or unsupported explicit option | 1 |
+
+## Machine-readable description
+
+```sh
+khsier --describe
+```
+
+This standalone mode writes one JSON object followed by a newline to stdout,
+describing the binary's static public contract and capabilities. It never
+reads stdin, forwards data, emits lifecycle events, or prepares an event FD.
+All other arguments, including a second `--describe`, are rejected.
+
+The description includes options, event prerequisites, lifecycle record
+formats, ordering/backpressure semantics, output behavior, EOS limits, and
+exit statuses. `--events-fd` is listed on every platform; its `supported` value
+lets consumers check the binary's capability directly. FD metadata specifies
+a minimum of 3 without advertising a maximum; startup validation still applies.
+
+`schema_version` starts at 1 and is independent of `tool.version`, which
+matches `--version`. Consumers ignore unknown fields and identify options and
+events by name. Ordering, whitespace, and exact explanatory wording are not
+contractual. See the [description reference](docs/khsier.md#machine-readable-description)
+for field definitions and compatibility rules.
+
+Complete output returns status 0. Invalid arguments or stdout failures,
+including EPIPE and short writes, produce a stderr diagnostic and status 1.
+A failed output may leave incomplete JSON on stdout.
 
 ## Go library
 

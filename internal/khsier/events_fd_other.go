@@ -9,6 +9,8 @@ import (
 	"io"
 )
 
+const eventsFDSupported = false
+
 func openEventsFD(int) (io.WriteCloser, error) {
 	return nil, fmt.Errorf("not supported on this OS")
 }

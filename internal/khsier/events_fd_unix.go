@@ -11,6 +11,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+const eventsFDSupported = true
+
 func openEventsFD(fd int) (io.WriteCloser, error) {
 	return duplicateEventsFD(fd, unix.Dup)
 }
