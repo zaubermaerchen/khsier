@@ -17,7 +17,9 @@ func TestHomebrewReleaseWorkflowContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	job := regexp.MustCompile(`(?ms)^  homebrew:\n(.*?)(?:^  [a-z][a-z_-]*:\n|\z)`).FindStringSubmatch(string(data))
+	// Windows checkouts can use CRLF without changing the workflow contract.
+	workflow := strings.ReplaceAll(string(data), "\r\n", "\n")
+	job := regexp.MustCompile(`(?ms)^  homebrew:\n(.*?)(?:^  [a-z][a-z_-]*:\n|\z)`).FindStringSubmatch(workflow)
 	if job == nil {
 		t.Fatal("release workflow must call the common Homebrew workflow")
 	}
@@ -56,10 +58,11 @@ func TestReleasePrepareHomebrewEligibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "      homebrew-eligible: ${{ steps.version.outputs.homebrew-eligible }}\n") {
+	workflow := strings.ReplaceAll(string(data), "\r\n", "\n")
+	if !strings.Contains(workflow, "      homebrew-eligible: ${{ steps.version.outputs.homebrew-eligible }}\n") {
 		t.Error("prepare must expose Homebrew eligibility to downstream jobs")
 	}
-	script := regexp.MustCompile(`(?ms)^        run: \|\n(.*?)(?:\n  test:\n)`).FindStringSubmatch(string(data))
+	script := regexp.MustCompile(`(?ms)^        run: \|\n(.*?)(?:\n  test:\n)`).FindStringSubmatch(workflow)
 	if script == nil {
 		t.Fatal("release preparation script not found")
 	}
