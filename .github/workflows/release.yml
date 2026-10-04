@@ -289,12 +289,12 @@ jobs:
       - release
     permissions:
       contents: read
-    # Deploy the tap first, then pin both refs to its reviewed merge commit.
-    uses: zaubermaerchen/homebrew-tap/.github/workflows/update-formula.yml@7b06d9b7b3767d7e552bf3bca765f07da0171e65
+    # Deploy the tap first, then pin both refs to its reviewed commit.
+    uses: zaubermaerchen/homebrew-tap/.github/workflows/update-formula.yml@18a30289f199e21a6ddd1d5be1b57f6249fe0622
     with:
       formula: khsier
       tag: ${{ needs.prepare.outputs.version }}
-      automation-ref: 7b06d9b7b3767d7e552bf3bca765f07da0171e65
+      automation-ref: 18a30289f199e21a6ddd1d5be1b57f6249fe0622
       app-id: ${{ vars.HOMEBREW_TAP_APP_ID }}
     secrets:
       app-private-key: ${{ secrets.HOMEBREW_TAP_APP_PRIVATE_KEY }}
