@@ -29,6 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
+      homebrew-eligible: ${{ steps.version.outputs.homebrew-eligible }}
     steps:
       - name: Resolve and validate version
         id: version
@@ -65,6 +66,12 @@ jobs:
             version=snapshot
           fi
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          stable="^v${number}\.${number}\.${number}$"
+          homebrew_eligible=false
+          if [[ "$version" =~ $stable ]]; then
+            homebrew_eligible=true
+          fi
+          printf 'homebrew-eligible=%s\n' "$homebrew_eligible" >> "$GITHUB_OUTPUT"
 
   test:
     name: Test
@@ -182,6 +189,7 @@ jobs:
             printf '%s\n' "$package_name/README.md"
             printf '%s\n' "$package_name/docs/"
             printf '%s\n' "$package_name/docs/khsier.md"
+            printf '%s\n' "$package_name/docs/releasing.md"
           } | sort > "$expected"
           if [[ "$TARGET_OS" == windows ]]; then
             unzip -Z1 "$archive_path" | sort > "$actual"
@@ -272,3 +280,21 @@ jobs:
             "release/khsier_${VERSION}_windows_arm64.zip"
           )
           gh release create "$GITHUB_REF_NAME" --verify-tag --notes-from-tag --title "$GITHUB_REF_NAME" "${archives[@]}" release/SHA256SUMS
+
+  homebrew:
+    name: Propose Homebrew Formula update
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && needs.prepare.outputs.homebrew-eligible == 'true'
+    needs:
+      - prepare
+      - release
+    permissions:
+      contents: read
+    # Deploy the tap first, then pin both refs to its reviewed merge commit.
+    uses: zaubermaerchen/homebrew-tap/.github/workflows/update-formula.yml@7b06d9b7b3767d7e552bf3bca765f07da0171e65
+    with:
+      formula: khsier
+      tag: ${{ needs.prepare.outputs.version }}
+      automation-ref: 7b06d9b7b3767d7e552bf3bca765f07da0171e65
+      app-id: ${{ vars.HOMEBREW_TAP_APP_ID }}
+    secrets:
+      app-private-key: ${{ secrets.HOMEBREW_TAP_APP_PRIVATE_KEY }}
