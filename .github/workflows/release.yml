@@ -5,6 +5,7 @@ on:
     paths:
       - ".github/workflows/release.yml"
       - "go.mod"
+      - "go.sum"
       - "*.go"
       - "LICENSE"
       - "README.md"
